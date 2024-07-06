@@ -1,15 +1,19 @@
 import discord
-from discord.ext import commands, tasks
+from discord.ext import commands
+from discord.ui import Button, View
+from discord.components import ActionRow
+import os
 import collections
 import asyncio
 
-bot = commands.Bot(command_prefix='!')
+# Discord bot message intent
+intents = discord.Intents.default()
+intents.message_content = True
+bot = commands.Bot(command_prefix='!', intents=intents)
 
 # Dictionary to store word counts
 word_counts = collections.defaultdict(int)
 
-# Background task to update word counts periodically
-@tasks.loop(minutes=5.0)
 async def update_word_counts():
     global word_counts
     print("Updating word counts...")
@@ -22,11 +26,12 @@ async def update_word_counts():
                 words = message.content.split()
                 for word in words:
                     word_counts[word.lower()] += 1
+print('Word Count Updated')
 
 @bot.event
 async def on_ready():
     print(f'{bot.user} has connected to Discord!')
-    update_word_counts.start()  # Start the background task to update word counts periodically
+    bot.loop.create_task(update_word_counts())  # Start the background task using asyncio
 
 @bot.event
 async def on_message(message):
@@ -74,9 +79,8 @@ async def count_words(ctx, page_number: int = 1):
             if page_number < num_pages:
                 components.append(discord.ui.Button(style=discord.ButtonStyle.primary, label="Next", custom_id=f"count_next"))
 
-        action_row = discord.ui.ActionRow(*components) if components else None
+        action_row = discord.components.ActionRow(*components) if components else None  # Assign a value even if no buttons
         return embed, action_row
-
     # Send the initial embed with the specified page number
     embed, action_row = await create_embed(page_number)
     message = await ctx.send(embed=embed, components=action_row)
@@ -100,4 +104,4 @@ async def count_words(ctx, page_number: int = 1):
             break
 
 # Replace 'YOUR_BOT_TOKEN' with your actual Discord bot token
-bot.run('YOUR_BOT_TOKEN')
+bot.run('YOUR BOT TOKEN HERE')
