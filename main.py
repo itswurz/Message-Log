@@ -1,32 +1,47 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 import collections
+import asyncio
 
 bot = commands.Bot(command_prefix='!')
 
 # Dictionary to store word counts
 word_counts = collections.defaultdict(int)
 
+# Background task to update word counts periodically
+@tasks.loop(minutes=5.0)
+async def update_word_counts():
+    global word_counts
+    print("Updating word counts...")
+    word_counts = collections.defaultdict(int)
+    for channel in bot.get_all_channels():
+        if isinstance(channel, discord.TextChannel):
+            async for message in channel.history(limit=None):
+                if message.author.bot:
+                    continue
+                words = message.content.split()
+                for word in words:
+                    word_counts[word.lower()] += 1
+
 @bot.event
 async def on_ready():
     print(f'{bot.user} has connected to Discord!')
+    update_word_counts.start()  # Start the background task to update word counts periodically
 
 @bot.event
 async def on_message(message):
     if message.author.bot:
         return  # Ignore messages from other bots
 
-    # Split message content into words
-    words = message.content.split()
-
     # Update word counts
+    words = message.content.split()
     for word in words:
         word_counts[word.lower()] += 1
 
     await bot.process_commands(message)
 
 @bot.command(name='count')
-async def count_words(ctx):
+async def count_words(ctx, page_number: int = 1):
     # Sort words by frequency (descending)
     sorted_word_counts = sorted(word_counts.items(), key=lambda item: item[1], reverse=True)
 
@@ -36,10 +51,10 @@ async def count_words(ctx):
     # Calculate total pages
     num_pages = (len(sorted_word_counts) + words_per_page - 1) // words_per_page
 
-    # Default to page 1 if no specific page requested
-    page_number = 1
+    # Validate page number
+    page_number = max(1, min(page_number, num_pages))
 
-    # Function to create a new embed for the given page
+    # Function to create an embed for the given page
     async def create_embed(page_number):
         embed = discord.Embed(title="Word Count", color=discord.Color.blue())
 
@@ -52,18 +67,17 @@ async def count_words(ctx):
             embed.add_field(name=f"{idx + 1}. {word}", value=f"Count: {count}", inline=False)
 
         # Add pagination buttons if needed
+        components = []
         if num_pages > 1:
-            components = [
-                discord.ui.Button(style=discord.ButtonStyle.primary, label="Previous", disabled=page_number == 1, custom_id=f"count_prev"),
-                discord.ui.Button(style=discord.ButtonStyle.primary, label="Next", disabled=page_number == num_pages, custom_id=f"count_next"),
-            ]
+            if page_number > 1:
+                components.append(discord.ui.Button(style=discord.ButtonStyle.primary, label="Previous", custom_id=f"count_prev"))
+            if page_number < num_pages:
+                components.append(discord.ui.Button(style=discord.ButtonStyle.primary, label="Next", custom_id=f"count_next"))
 
-            action_row = discord.ui.ActionRow(*components)
-            return embed, action_row
-        else:
-            return embed, None
+        action_row = discord.ui.ActionRow(*components) if components else None
+        return embed, action_row
 
-    # Send the initial embed with page 1
+    # Send the initial embed with the specified page number
     embed, action_row = await create_embed(page_number)
     message = await ctx.send(embed=embed, components=action_row)
 
@@ -72,13 +86,10 @@ async def count_words(ctx):
         try:
             interaction = await bot.wait_for("button_click", check=lambda inter: inter.message.id == message.id and inter.user.id == ctx.author.id, timeout=60)
 
-            if interaction.component.custom_id == "count_prev":
+            if interaction.component.custom_id == "count_prev" and page_number > 1:
                 page_number -= 1
-            elif interaction.component.custom_id == "count_next":
+            elif interaction.component.custom_id == "count_next" and page_number < num_pages:
                 page_number += 1
-
-            # Ensure page number is within bounds
-            page_number = max(1, min(page_number, num_pages))
 
             # Update the embed with the new page
             embed, action_row = await create_embed(page_number)
@@ -88,4 +99,5 @@ async def count_words(ctx):
             await message.edit(components=None)
             break
 
+# Replace 'YOUR_BOT_TOKEN' with your actual Discord bot token
 bot.run('YOUR_BOT_TOKEN')
